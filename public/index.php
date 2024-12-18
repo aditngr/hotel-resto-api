@@ -6,7 +6,7 @@
     <title>Hotel & Resto</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .booking-form, .food-order-form {
+        .booking-form, .food-order-form, .invoice {
             max-width: 600px;
             margin: 30px auto;
             padding: 20px;
@@ -21,21 +21,8 @@
         .menu-item {
             margin-bottom: 10px;
         }
-        .menu-item button {
-            margin-left: 10px;
-        }
-        #order-summary { 
-            display: none; 
-            margin-top: 20px; 
-        }
-        #order-summary table { 
-            width: 100%; 
-            border-collapse: collapse; 
-        }
-        #order-summary th, #order-summary td { 
-            border: 1px solid #ddd; 
-            padding: 8px; 
-            text-align: left; 
+        .points-section {
+            margin-top: 20px;
         }
     </style>
 </head>
@@ -56,7 +43,7 @@
                 </div>
                 <div class="mb-3">
                     <label for="nights" class="form-label">Jumlah Malam</label>
-                    <input type="number" class="form-control" id="nights" name="nights" min="1" max="30" required>
+                    <input type="number" class="form-control" id="nights" min="1" max="30" required>
                 </div>
                 <button type="button" onclick="showFoodOrderForm()" class="btn btn-primary w-100">Pesan Kamar</button>
             </form>
@@ -68,31 +55,53 @@
             <div id="menu"></div>
 
             <h4 class="section-title">Order Summary</h4>
-            <div id="order-summary">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>Price</th>
-                        </tr>
-                    </thead>
-                    <tbody id="order-items"></tbody>
-                </table>
-                <button onclick="placeOrder()" class="btn btn-primary w-100">Lanjut Pembayaran</button>
+            <div id="order-summary"></div>
+
+            <!-- Redeem Points Section -->
+            <div class="points-section">
+                <h4 class="section-title">Tukar Poin</h4>
+                <p>Poin Anda: <span id="userPoints">500</span></p>
+                <input type="number" class="form-control mb-2" id="redeemPoints" placeholder="Masukkan jumlah poin" min="100">
+                <button onclick="redeemPointsForFood()" class="btn btn-outline-success w-100">Tukar Poin untuk Makanan</button>
             </div>
 
-            <!-- Tombol Tukar Voucher -->
-            <button onclick="redeemVoucher()" class="btn btn-success w-100 mt-3">Tukarkan Voucher</button>
+            <button onclick="showInvoice(true)" class="btn btn-primary w-100">Lanjut Pembayaran</button>
+            <button onclick="showInvoice(false)" class="btn btn-secondary w-100 mt-3">Lewati</button>
+            <button onclick="backToRoomBooking()" class="btn btn-outline-primary w-100 mt-3">Kembali</button>
+        </div>
 
-            <!-- Tombol Lewati dan Kembali -->
-            <button type="button" onclick="skipFoodOrder()" class="btn btn-secondary w-100 mt-3">Lewati</button>
-            <button type="button" onclick="backToRoomBooking()" class="btn btn-outline-primary w-100 mt-3">Kembali ke Pemesanan Kamar</button>
+        <!-- Halaman Tagihan -->
+        <div class="invoice" id="invoicePage" style="display: none;">
+            <h2 class="text-center mb-4">Tagihan Anda</h2>
+            <div id="invoiceDetails"></div>
+            <button onclick="location.reload()" class="btn btn-success w-100">Selesai</button>
         </div>
     </div>
 
     <script>
-        // Fungsi untuk menampilkan form pemesanan makanan
+        let cart = [];
+        let roomTotal = 0;
+        let userPoints = 500; 
+        let foodTotal = 0; 
+
+        document.getElementById('userPoints').textContent = userPoints;
+
         function showFoodOrderForm() {
+            const roomType = document.getElementById('roomType').value;
+            const nights = document.getElementById('nights').value;
+
+            if (!roomType || nights <= 0) {
+                alert('Harap pilih tipe kamar dan jumlah malam.');
+                return;
+            }
+
+            let pricePerNight = 0;
+            if (roomType === 'Standard') pricePerNight = 100000;
+            if (roomType === 'Deluxe') pricePerNight = 150000;
+            if (roomType === 'Suite') pricePerNight = 200000;
+
+            roomTotal = pricePerNight * nights;
+
             document.getElementById('bookingForm').style.display = 'none';
             document.getElementById('foodOrderForm').style.display = 'block';
             loadMenu();
@@ -103,17 +112,10 @@
             document.getElementById('bookingForm').style.display = 'block';
         }
 
-        function skipFoodOrder() {
-            document.getElementById('foodOrderForm').style.display = 'none';
-            alert('Anda telah melewati pemesanan makanan.');
-        }
-
-        const menuContainer = document.getElementById('menu');
-        const orderSummary = document.getElementById('order-summary');
-        const orderItems = document.getElementById('order-items');
-        let cart = [];
-
         async function loadMenu() {
+            const menuContainer = document.getElementById('menu');
+            menuContainer.innerHTML = ''; 
+
             try {
                 const response = await fetch('http://localhost/hotel-resto-api/public/menu.php');
                 const menu = await response.json();
@@ -123,55 +125,59 @@
                     div.className = 'menu-item';
                     div.innerHTML = `
                         ${item.name} - Rp${item.price}
-                        <button onclick="addToCart(${item.id}, '${item.name}', ${item.price})" class="btn btn-outline-primary btn-sm">Add to Cart</button>
+                        <button onclick="addToCart('${item.name}', ${item.price})" class="btn btn-outline-primary btn-sm">Add</button>
                     `;
                     menuContainer.appendChild(div);
                 });
             } catch (error) {
                 console.error("Error loading menu:", error);
+                menuContainer.innerHTML = '<p class="text-danger">Gagal memuat menu. Coba lagi nanti.</p>';
             }
         }
 
-        function addToCart(id, name, price) {
-            cart.push({ id, name, price });
+        function addToCart(name, price) {
+            cart.push({ name, price });
+            foodTotal += price;
             updateOrderSummary();
         }
 
         function updateOrderSummary() {
-            orderItems.innerHTML = '';
-            cart.forEach(item => {
-                const row = document.createElement('tr');
-                row.innerHTML = `<td>${item.name}</td><td>Rp${item.price}</td>`;
-                orderItems.appendChild(row);
-            });
-            orderSummary.style.display = 'block';
+            const summary = cart.map(item => `<div>${item.name} - Rp${item.price}</div>`).join('');
+            document.getElementById('order-summary').innerHTML = summary + `<div><strong>Total Makanan: Rp${foodTotal}</strong></div>`;
         }
 
-    async function placeOrder() {
-        const response = await fetch('http://localhost/hotel-resto-api/public/order.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: cart.map(item => item.id) })
-    });
+        function redeemPointsForFood() {
+            const points = parseInt(document.getElementById('redeemPoints').value);
 
-    const result = await response.json();
-    alert(`${result.message}\n${result.voucher}`);
-    }
-
-
-        async function redeemVoucher() {
-            const voucherCode = prompt("Masukkan Kode Voucher:");
-            if (voucherCode) {
-                const response = await fetch('http://localhost/hotel-resto-api/public/redeem-voucher.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ voucherCode })
-                });
-                const result = await response.json();
-                alert(result.message || result.error);
+            if (points <= 0 || points > userPoints) {
+                alert("Poin tidak mencukupi.");
+                return;
             }
+
+            let pointValue = points * 100;
+
+            foodTotal -= pointValue;
+
+            userPoints -= points;
+            document.getElementById('userPoints').textContent = userPoints;
+            updateOrderSummary();
+        }
+
+        function showInvoice(includeFood) {
+            document.getElementById('foodOrderForm').style.display = 'none';
+            document.getElementById('invoicePage').style.display = 'block';
+
+            let total = roomTotal + (includeFood ? foodTotal : 0);
+
+            let invoiceHtml = `
+                <p><strong>Tagihan Kamar:</strong> Rp${roomTotal}</p>
+                ${includeFood ? `<p><strong>Tagihan Makanan:</strong> Rp${foodTotal}</p>` : ''}
+                <hr>
+                <h4>Total: Rp${total}</h4>
+            `;
+
+            document.getElementById('invoiceDetails').innerHTML = invoiceHtml;
         }
     </script>
-
 </body>
 </html>
